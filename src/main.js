@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import '@fontsource/press-start-2p';
+import { ClientGameScene } from './scenes/ClientGame.js';
 import { GameScene } from './scenes/Game.js';
+import { CoopScene, LobbyScene } from './scenes/Lobby.js';
 import { BootScene, CharSelectScene, MenuScene, ShopScene } from './scenes/Menus.js';
 import { ChestScene, GameOverScene, LevelUpScene, PauseScene } from './scenes/Overlays.js';
 import { UIScene } from './scenes/UI.js';
@@ -15,7 +17,7 @@ function start() {
     pixelArt: true,
     roundPixels: true,
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-    scene: [BootScene, MenuScene, CharSelectScene, ShopScene, GameScene, UIScene, LevelUpScene, ChestScene, PauseScene, GameOverScene],
+    scene: [BootScene, MenuScene, CharSelectScene, ShopScene, CoopScene, LobbyScene, GameScene, ClientGameScene, UIScene, LevelUpScene, ChestScene, PauseScene, GameOverScene],
   });
   window.__game = game; // handy for debugging in the console
 }

@@ -20,10 +20,16 @@ export class BootScene extends Phaser.Scene {
 }
 
 // Shared animated backdrop: scrolling ground + drifting bats.
-function backdrop(scene) {
+export function backdrop(scene) {
   scene.cameras.main.setBackgroundColor('#07040b');
   const g = scene.add.tileSprite(0, 0, W / 3, H / 3, 'ground').setOrigin(0).setScale(3).setAlpha(0.35);
-  scene.events.on('update', (t, dt) => {
+  // Listeners live on scene.events, which outlives a scene restart, so they
+  // must be removed on shutdown or they'd poke destroyed objects next time.
+  const onUpdate = (fn) => {
+    scene.events.on('update', fn);
+    scene.events.once('shutdown', () => scene.events.off('update', fn));
+  };
+  onUpdate((t, dt) => {
     g.tilePositionX += dt * 0.006;
     g.tilePositionY += dt * 0.003;
   });
@@ -32,7 +38,7 @@ function backdrop(scene) {
     const speed = 30 + Math.random() * 60;
     let f = 0;
     let ft = 0;
-    scene.events.on('update', (t, dt) => {
+    onUpdate((t, dt) => {
       b.x -= (speed * dt) / 1000;
       b.y += Math.sin(t / 300 + i) * 0.3;
       ft += dt;
@@ -56,7 +62,7 @@ export class MenuScene extends Phaser.Scene {
     super('Menu');
   }
 
-  create() {
+  create(data) {
     backdrop(this);
     hookAudioUnlock(this);
     const save = loadSave();
@@ -65,10 +71,12 @@ export class MenuScene extends Phaser.Scene {
     this.tweens.add({ targets: title, y: 160, yoyo: true, repeat: -1, duration: 1600, ease: 'Sine.InOut' });
     txt(this, W / 2, 230, 'a Vampire Survivors-style survival game', 14, COLORS.dim, { ox: 0.5 });
 
-    const start = button(this, W / 2, 340, 'START', 360, 60, 20);
-    const shop = button(this, W / 2, 420, 'POWER UPS', 360, 60, 20);
-    const mute = button(this, W / 2, 500, audio.muted ? 'SOUND: OFF' : 'SOUND: ON', 360, 60, 20);
+    const start = button(this, W / 2, 310, 'START', 360, 56, 20);
+    const coop = button(this, W / 2, 378, 'ONLINE CO-OP', 360, 56, 20);
+    const shop = button(this, W / 2, 446, 'POWER UPS', 360, 56, 20);
+    const mute = button(this, W / 2, 514, audio.muted ? 'SOUND: OFF' : 'SOUND: ON', 360, 56, 20);
     start.onSelect = () => this.scene.start('CharSelect');
+    coop.onSelect = () => this.scene.start('Coop');
     shop.onSelect = () => this.scene.start('Shop');
     mute.onSelect = () => {
       audio.unlock();
@@ -78,7 +86,11 @@ export class MenuScene extends Phaser.Scene {
       writeSave(s);
       mute.label.setText(audio.muted ? 'SOUND: OFF' : 'SOUND: ON');
     };
-    new Nav(this, [start, shop, mute]);
+    new Nav(this, [start, coop, shop, mute]);
+    if (data?.message) {
+      const m = txt(this, W / 2, 268, data.message, 12, COLORS.red, { ox: 0.5, oy: 0.5 });
+      this.tweens.add({ targets: m, alpha: 0, delay: 5000, duration: 800 });
+    }
 
     this.add.image(W - 160, H - 36, 'coin').setScale(2);
     txt(this, W - 140, H - 44, `${save.gold}`, 14, COLORS.gold);
@@ -87,7 +99,7 @@ export class MenuScene extends Phaser.Scene {
       const s = Math.floor(save.best.time % 60);
       txt(this, 24, H - 44, `BEST ${m}:${String(s).padStart(2, '0')}  LV ${save.best.level}  ${save.best.kills} KILLS`, 10, COLORS.dim);
     }
-    txt(this, W / 2, H - 100, 'WASD / ARROWS to move  -  weapons fire automatically', 10, COLORS.dim, { ox: 0.5 });
+    txt(this, W / 2, H - 92, 'WASD / ARROWS to move  -  weapons fire automatically', 10, COLORS.dim, { ox: 0.5 });
   }
 }
 

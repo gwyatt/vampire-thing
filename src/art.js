@@ -34,17 +34,23 @@ function drawMap(ctx, rows, palette, ox = 0, oy = 0) {
   });
 }
 
+// Every generated texture key, in generation order. Identical on every peer,
+// so co-op snapshots can refer to textures by index (see netsync.js).
+export const ART_KEYS = [];
+
 function addMap(scene, key, rows, palette) {
   const w = Math.max(...rows.map((r) => r.length));
   const { c, ctx } = makeCanvas(w, rows.length);
   drawMap(ctx, rows, palette);
   scene.textures.addCanvas(key, c);
+  ART_KEYS.push(key);
 }
 
 function addCanvasTex(scene, key, w, h, draw) {
   const { c, ctx } = makeCanvas(w, h);
   draw(ctx, w, h);
   scene.textures.addCanvas(key, c);
+  ART_KEYS.push(key);
 }
 
 // Deterministic RNG so generated textures look the same every run.

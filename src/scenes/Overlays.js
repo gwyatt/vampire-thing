@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
 import { audio } from '../audio.js';
 import { PASSIVES } from '../data.js';
+import { net, netOn } from '../net.js';
 import { COLORS, H, Nav, W, button, card, fmtTime, onKeyDown, panel, txt } from '../ui.js';
-import { WEAPONS } from '../weapons.js';
 
 function dim(scene, a = 0.65) {
   return scene.add.rectangle(0, 0, W, H, 0x000000, a).setOrigin(0);
@@ -21,7 +21,10 @@ export class LevelUpScene extends Phaser.Scene {
     super('LevelUp');
   }
 
-  create({ choices, level }) {
+  // Solo: applies the pick to the Game scene and resumes it.
+  // Co-op (mp): reports the pick via onPick(index) and waits; the host
+  // closes every LevelUp screen once all hunters have chosen.
+  create({ choices, level, mp = false, onPick = null }) {
     this.done = false;
     const gs = this.scene.get('Game');
     dim(this);
@@ -44,28 +47,30 @@ export class LevelUpScene extends Phaser.Scene {
       const desc = txt(this, -225, -4, c.desc, 11, COLORS.dim, { wrap: 520, lineSpacing: 8 });
       const key = txt(this, 310, 34, `[${i + 1}]`, 10, COLORS.dim, { ox: 1, oy: 1 });
       it.container.add([iconBg, icon, name, tagT, desc, key]);
-      // Evolution hint
-      if (c.kind === 'weapon' && WEAPONS[c.id].evo) {
-        const ev = WEAPONS[c.id].evo;
-        const has = gs.passiveLevel(ev.with) > 0;
-        const hint = txt(this, -225, 30, `Evolves with ${PASSIVES[ev.with].name}`, 8, has ? COLORS.green : '#6a5f80');
-        it.container.add(hint);
-      } else if (c.kind === 'passive') {
-        const pairs = Object.entries(WEAPONS)
-          .filter(([, d]) => d.evo?.with === c.id)
-          .map(([, d]) => d.name);
-        if (pairs.length) it.container.add(txt(this, -225, 30, `Evolves ${pairs.join(', ')}`, 8, '#6a5f80'));
-      }
+      if (c.hint) it.container.add(txt(this, -225, 30, c.hint.text, 8, c.hint.ok ? COLORS.green : '#6a5f80'));
       it.container.setAlpha(0);
       this.tweens.add({ targets: it.container, alpha: 1, x: { from: W / 2 + 40, to: W / 2 }, duration: 200, delay: 60 * i });
       it.onSelect = () => {
         if (this.done) return; // stop() is deferred a frame; never apply twice
         this.done = true;
-        gs.applyChoice(c);
+        if (mp) {
+          nav.enabled = false;
+          items.forEach((other, j) => j !== i && other.container.setAlpha(0.35));
+          this.waitText.setText('Waiting for the other hunters...');
+          onPick(i);
+          return;
+        }
+        gs.applyChoice(gs.me, c);
         this.close();
       };
       return it;
     });
+    this.waitText = txt(this, W / 2, H / 2 + 20 + totalH / 2 + 16, '', 12, COLORS.green, { ox: 0.5 });
+    if (mp) {
+      const onProgress = (done, total) => this.done && this.waitText.setText(`Waiting for the other hunters... ${done}/${total}`);
+      this.game.events.on('levelup-progress', onProgress);
+      this.events.once('shutdown', () => this.game.events.off('levelup-progress', onProgress));
+    }
     // Ignore input for a beat so held keys don't insta-pick
     const nav = new Nav(this, items, { numberKeys: true });
     nav.enabled = false;
@@ -148,17 +153,21 @@ export class PauseScene extends Phaser.Scene {
     super('Pause');
   }
 
-  create() {
+  // In co-op the world keeps running underneath; this is just a menu.
+  create(data) {
     this.done = false;
-    const gs = this.scene.get('Game');
+    this.mp = !!data?.mp;
+    const gs = (this.gs = this.scene.get(data?.source || 'Game'));
+    const me = gs.me;
     dim(this, 0.7);
     panel(this, W / 2, H / 2, 900, 600);
-    txt(this, W / 2, 80, 'PAUSED', 32, COLORS.gold, { ox: 0.5 });
+    txt(this, W / 2, 80, this.mp ? 'MENU' : 'PAUSED', 32, COLORS.gold, { ox: 0.5 });
+    if (this.mp) txt(this, W / 2, 118, 'The game keeps running in co-op!', 10, COLORS.red, { ox: 0.5 });
 
-    const s = gs.stats;
+    const s = me.stats;
     const pct = (v) => `${v >= 1 ? '+' : ''}${Math.round((v - 1) * 100)}%`;
     const lines = [
-      ['Max Health', `${Math.ceil(gs.player.hp)} / ${s.maxHp}`],
+      ['Max Health', `${Math.ceil(me.hp)} / ${s.maxHp}`],
       ['Recovery', `${s.recovery.toFixed(1)}/s`],
       ['Armor', `${s.armor}`],
       ['Move Speed', pct(s.moveSpeed)],
@@ -172,7 +181,7 @@ export class PauseScene extends Phaser.Scene {
       ['Growth', pct(s.growth)],
       ['Greed', pct(s.greed)],
       ['Magnet', pct(s.magnet)],
-      ['Revival', `${gs.revivals}`],
+      ['Revival', `${me.revivals}`],
     ];
     lines.forEach(([k, v], i) => {
       txt(this, 380, 140 + i * 24, k, 10, COLORS.dim);
@@ -180,13 +189,13 @@ export class PauseScene extends Phaser.Scene {
     });
 
     txt(this, 660, 140, 'WEAPONS', 12, COLORS.gold);
-    gs.weapons.forEach((w, i) => {
+    me.weapons.forEach((w, i) => {
       fitIcon(this.add.image(676, 180 + i * 34, w.def.icon), 24);
       txt(this, 700, 172 + i * 34, `${w.def.name}`, 10, COLORS.text);
       txt(this, 700, 186 + i * 34, w.def.evolved ? 'EVOLVED' : `LV ${w.level}`, 8, w.isMax ? COLORS.gold : COLORS.dim);
     });
     txt(this, 660, 390, 'PASSIVES', 12, COLORS.gold);
-    gs.passives.forEach((p, i) => {
+    me.passives.forEach((p, i) => {
       const x = 676 + (i % 3) * 80;
       const y = 430 + Math.floor(i / 3) * 40;
       fitIcon(this.add.image(x, y, PASSIVES[p.id].icon), 24);
@@ -194,12 +203,16 @@ export class PauseScene extends Phaser.Scene {
     });
 
     const resume = button(this, W / 2 - 170, H - 100, 'RESUME', 300, 54);
-    const quit = button(this, W / 2 + 170, H - 100, 'QUIT RUN', 300, 54);
+    const quit = button(this, W / 2 + 170, H - 100, this.mp ? 'LEAVE GAME' : 'QUIT RUN', 300, 54);
     resume.onSelect = () => this.resume();
     quit.onSelect = () => {
       if (this.done) return;
       this.done = true;
       this.scene.stop();
+      if (this.mp) {
+        gs.leaveGame();
+        return;
+      }
       gs.scene.resume();
       gs.alive = false;
       gs.endRun();
@@ -212,7 +225,8 @@ export class PauseScene extends Phaser.Scene {
     if (this.done) return;
     this.done = true;
     this.scene.stop();
-    this.scene.resume('Game');
+    if (this.mp) this.gs.inputBlocked = false;
+    else this.scene.resume('Game');
   }
 }
 
@@ -261,10 +275,25 @@ export class GameOverScene extends Phaser.Scene {
         txt(this, tx + 560, y, String(w.dps), 10, COLORS.dim, { ox: 1 });
       });
 
-    const retry = button(this, W / 2 - 170, H - 70, 'RETRY', 300, 54);
+    if (data.mp) txt(this, 160, 460, 'Team totals', 8, COLORS.dim);
+    const retry = button(this, W / 2 - 170, H - 70, data.mp ? 'BACK TO LOBBY' : 'RETRY', 300, 54);
     const menu = button(this, W / 2 + 170, H - 70, 'MAIN MENU', 300, 54);
-    retry.onSelect = () => this.scene.start('Game', { character: data.character });
-    menu.onSelect = () => this.scene.start('Menu');
+    retry.onSelect = () => {
+      if (!data.mp) this.scene.start('Game', { character: data.character });
+      else if (net.connected) this.scene.start('Lobby');
+      else this.scene.start('Menu', { message: 'The co-op session has ended' });
+    };
+    menu.onSelect = () => {
+      if (data.mp) net.close();
+      this.scene.start('Menu');
+    };
+    if (data.mp && !net.isHost) {
+      // If the host starts the next run while we're still reading this, jump in.
+      netOn(this, 'message', (m) => {
+        if (m.t === 'start') this.scene.start('ClientGame', { players: m.players, localId: net.id });
+        if (m.t === 'host-left') this.scene.start('Menu', { message: 'The host left the game' });
+      });
+    }
     const nav = new Nav(this, [retry, menu], { columns: 2 });
     nav.enabled = false;
     this.time.delayedCall(600, () => (nav.enabled = true));

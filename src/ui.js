@@ -86,12 +86,13 @@ export function button(scene, x, y, label, w = 320, h = 56, size = 16) {
 
 // Phaser re-dispatches the whole frame's key queue whenever a new DOM key
 // event arrives, so several presses within one frame would otherwise be
-// delivered more than once. Every key handler goes through this filter.
-const seenKeyEvents = new WeakSet();
+// delivered more than once. Every key handler goes through this filter,
+// which remembers (per handler) the native events it has already seen.
 export function onKeyDown(scene, fn) {
+  const seen = new WeakSet();
   const handler = (ev) => {
-    if (seenKeyEvents.has(ev)) return;
-    seenKeyEvents.add(ev);
+    if (seen.has(ev)) return;
+    seen.add(ev);
     fn(ev);
   };
   scene.input.keyboard.on('keydown', handler);

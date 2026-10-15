@@ -2,7 +2,6 @@
 // and a class implementing how it fires. Evolutions are separate weapon
 // ids that replace their base weapon once unlocked from a treasure chest.
 
-import { audio } from './audio.js';
 
 const TAU = Math.PI * 2;
 
@@ -159,8 +158,9 @@ export function describeLevel(id, level) {
 let uidCounter = 1;
 
 export class Weapon {
-  constructor(scene, id) {
+  constructor(scene, id, owner) {
     this.scene = scene;
+    this.owner = owner;
     this.id = id;
     this.def = WEAPONS[id];
     this.level = 1;
@@ -195,22 +195,22 @@ export class Weapon {
 
   // Effective stats including the player's passives
   get dmg() {
-    return this.s.dmg * this.scene.stats.might;
+    return this.s.dmg * this.owner.stats.might;
   }
   get area() {
-    return (this.s.area || 1) * this.scene.stats.area;
+    return (this.s.area || 1) * this.owner.stats.area;
   }
   get amount() {
-    return (this.s.amount || 1) + this.scene.stats.amount;
+    return (this.s.amount || 1) + this.owner.stats.amount;
   }
   get cooldown() {
-    return Math.max(0.05, this.s.cd * this.scene.stats.cooldown);
+    return Math.max(0.05, this.s.cd * this.owner.stats.cooldown);
   }
   get speed() {
-    return (this.s.speed || 1) * this.scene.stats.projSpeed;
+    return (this.s.speed || 1) * this.owner.stats.projSpeed;
   }
   get duration() {
-    return (this.s.duration || 1) * this.scene.stats.duration;
+    return (this.s.duration || 1) * this.owner.stats.duration;
   }
 
   update(dt) {
@@ -226,8 +226,16 @@ export class Weapon {
   burst(n, gap, fn) {
     for (let i = 0; i < n; i++) {
       if (i === 0) fn(0);
-      else this.scene.time.delayedCall(i * gap, () => this.scene.alive && fn(i));
+      else this.scene.time.delayedCall(i * gap, () => this.scene.alive && this.owner.alive && fn(i));
     }
+  }
+
+  // Tag a display object as belonging to (and positioned around) the owner,
+  // so the owner's client can keep it glued to its predicted position.
+  follow(obj) {
+    obj.__owner = this.owner.id;
+    obj.__follow = true;
+    return obj;
   }
 
   destroy() {}
@@ -237,8 +245,8 @@ export class Weapon {
 
 class Whip extends Weapon {
   fire() {
-    audio.play('whip');
-    const p = this.scene.player;
+    this.scene.sfx('whip');
+    const p = this.owner;
     this.burst(this.amount, 110, (i) => {
       const side = i % 2 === 0 ? p.facing : -p.facing;
       const yOff = -Math.floor(i / 2) * 12;
@@ -248,13 +256,13 @@ class Whip extends Weapon {
 
   slash(dir, yOff) {
     const sc = this.scene;
-    const p = sc.player;
+    const p = this.owner;
     const evo = this.id === 'crimson';
     const len = 100 * this.area;
     const h = 22 * this.area;
     const cy = p.y - 4 + yOff;
     const x0 = dir > 0 ? p.x + 4 : p.x - 4 - len;
-    const fx = sc.add.image(dir > 0 ? p.x + 4 : p.x - 4, cy, evo ? 'slash_evo' : 'slash');
+    const fx = this.follow(sc.add.image(dir > 0 ? p.x + 4 : p.x - 4, cy, evo ? 'slash_evo' : 'slash'));
     fx.setOrigin(dir > 0 ? 0 : 1, 0.5).setFlipX(dir < 0).setDepth(9000);
     fx.setScale(len / 96, this.area);
     sc.tweens.add({ targets: fx, alpha: 0, scaleY: this.area * 0.3, duration: 220, onComplete: () => fx.destroy() });
@@ -266,7 +274,7 @@ class Whip extends Weapon {
         crit = true;
       }
       sc.damageEnemy(e, d, this, dir, 0, 1, crit);
-      if (evo) sc.heal(0.4, true);
+      if (evo) sc.heal(this.owner, 0.4, true);
     });
   }
 }
@@ -276,11 +284,11 @@ class Wand extends Weapon {
     const sc = this.scene;
     const evo = this.id === 'torrent';
     this.burst(this.amount, 90, () => {
-      const p = sc.player;
+      const p = this.owner;
       const t = sc.nearestEnemy(p.x, p.y, 420);
       let ang = t ? Math.atan2(t.y - p.y, t.x - p.x) : Math.random() * TAU;
       if (evo) ang += (Math.random() - 0.5) * 0.15;
-      audio.play('shoot');
+      this.scene.sfx('shoot');
       const spd = 230 * this.speed;
       sc.addProjectile({
         tex: evo ? 'bolt_evo' : 'bolt',
@@ -305,11 +313,11 @@ class Knife extends Weapon {
     const sc = this.scene;
     const evo = this.id === 'blades';
     this.burst(this.amount, 55, () => {
-      const p = sc.player;
+      const p = this.owner;
       const ang = Math.atan2(p.dirY, p.dirX) + (evo ? (Math.random() - 0.5) * 0.25 : 0);
       const perp = (Math.random() - 0.5) * 14;
       const spd = 380 * this.speed;
-      audio.play('shoot');
+      this.scene.sfx('shoot');
       sc.addProjectile({
         tex: evo ? 'knife_evo' : 'knife',
         x: p.x + Math.cos(ang + Math.PI / 2) * perp,
@@ -331,7 +339,7 @@ class Knife extends Weapon {
 class Axe extends Weapon {
   fire() {
     const sc = this.scene;
-    const p = sc.player;
+    const p = this.owner;
     const n = this.amount;
     if (this.id === 'spiral') {
       const off = Math.random() * TAU;
@@ -354,7 +362,7 @@ class Axe extends Weapon {
           growth: 0.5,
         });
       }
-      audio.play('whip');
+      this.scene.sfx('whip');
       return;
     }
     this.burst(n, 120, (i) => {
@@ -374,14 +382,14 @@ class Axe extends Weapon {
         weapon: this,
         spin: 10 * p.facing,
       });
-      audio.play('whip');
+      this.scene.sfx('whip');
     });
   }
 }
 
 class Tome extends Weapon {
-  constructor(scene, id) {
-    super(scene, id);
+  constructor(scene, id, owner) {
+    super(scene, id, owner);
     this.books = [];
     this.angle = 0;
     this.activeT = 0;
@@ -402,7 +410,7 @@ class Tome extends Weapon {
     this.clearBooks(false);
     const n = this.amount;
     for (let i = 0; i < n; i++) {
-      const b = this.scene.add.image(0, 0, this.evo ? 'book_evo' : 'book').setDepth(9000);
+      const b = this.follow(this.scene.add.image(0, 0, this.evo ? 'book_evo' : 'book').setDepth(9000));
       b.setScale(0);
       this.scene.tweens.add({ targets: b, scale: Math.sqrt(this.area), duration: 200 });
       this.books.push(b);
@@ -421,6 +429,11 @@ class Tome extends Weapon {
     if (this.books.length) this.spawnBooks();
   }
 
+  sleep() {
+    this.clearBooks(false);
+    this.timer = 0.5;
+  }
+
   tick(dt) {
     if (!this.books.length) return;
     if (this.evo && this.books.length !== this.amount) this.spawnBooks();
@@ -432,7 +445,7 @@ class Tome extends Weapon {
       }
     }
     const sc = this.scene;
-    const p = sc.player;
+    const p = this.owner;
     this.angle += dt * 3.2 * this.speed;
     const r = 48 * this.area;
     const n = this.books.length;
@@ -452,10 +465,10 @@ class Tome extends Weapon {
 }
 
 class Garlic extends Weapon {
-  constructor(scene, id) {
-    super(scene, id);
+  constructor(scene, id, owner) {
+    super(scene, id, owner);
     const evo = id === 'souleater';
-    this.aura = scene.add.image(0, 0, 'glow').setDepth(-5).setAlpha(0.8);
+    this.aura = this.follow(scene.add.image(0, 0, 'glow').setDepth(-5).setAlpha(0.8));
     this.aura.setTint(evo ? 0xff3a8a : 0xf8f0c0);
     this.growth = 0;
   }
@@ -468,7 +481,9 @@ class Garlic extends Weapon {
 
   tick() {
     const sc = this.scene;
-    const p = sc.player;
+    const p = this.owner;
+    this.aura.setVisible(p.alive);
+    if (!p.alive) return;
     const r = this.radius;
     const pulse = 1 + Math.sin(sc.clock * 6) * 0.04;
     this.aura.setPosition(p.x, p.y - 2).setScale(((r * 2) / 128) * 1.15 * pulse);
@@ -480,10 +495,14 @@ class Garlic extends Weapon {
       const len = Math.hypot(dx, dy) || 1;
       const killed = sc.damageEnemy(e, this.dmg, this, dx / len, dy / len, 0.6);
       if (evo) {
-        sc.heal(0.25, true);
+        sc.heal(this.owner, 0.25, true);
         if (killed) this.growth = Math.min(0.6, this.growth + 0.002);
       }
     });
+  }
+
+  sleep() {
+    this.aura.setVisible(false);
   }
 
   destroy() {
@@ -492,8 +511,8 @@ class Garlic extends Weapon {
 }
 
 class Water extends Weapon {
-  constructor(scene, id) {
-    super(scene, id);
+  constructor(scene, id, owner) {
+    super(scene, id, owner);
     this.pools = [];
   }
 
@@ -504,8 +523,8 @@ class Water extends Weapon {
   fire() {
     const sc = this.scene;
     this.burst(this.amount, 160, () => {
-      const p = sc.player;
-      const t = sc.randomVisibleEnemy();
+      const p = this.owner;
+      const t = sc.randomVisibleEnemy(this.owner);
       let tx;
       let ty;
       if (t && Math.random() < 0.8) {
@@ -540,7 +559,7 @@ class Water extends Weapon {
     img.setScale(0);
     sc.tweens.add({ targets: img, scale: (r * 2) / 64, duration: 150 });
     this.pools.push({ img, x, y, r, life: this.duration });
-    audio.play('hit');
+    this.scene.sfx('hit');
   }
 
   tick(dt) {
@@ -549,8 +568,8 @@ class Water extends Weapon {
       const pl = this.pools[i];
       pl.life -= dt;
       if (this.evo) {
-        const dx = sc.player.x - pl.x;
-        const dy = sc.player.y - pl.y;
+        const dx = this.owner.x - pl.x;
+        const dy = this.owner.y - pl.y;
         const len = Math.hypot(dx, dy) || 1;
         pl.x += (dx / len) * 30 * dt;
         pl.y += (dy / len) * 30 * dt;
@@ -569,6 +588,10 @@ class Water extends Weapon {
     }
   }
 
+  sleep() {
+    this.destroy();
+  }
+
   destroy() {
     this.pools.forEach((p) => p.img.destroy());
     this.pools = [];
@@ -580,7 +603,7 @@ class Ring extends Weapon {
     const sc = this.scene;
     const evo = this.id === 'thunder';
     this.burst(this.amount, 100, () => {
-      const t = sc.randomVisibleEnemy();
+      const t = sc.randomVisibleEnemy(this.owner);
       if (!t) return;
       const x = t.x;
       const y = t.y;
@@ -596,7 +619,7 @@ class Ring extends Weapon {
     sc.tweens.add({ targets: bolt, alpha: 0, duration: 260, onComplete: () => bolt.destroy() });
     const flash = sc.add.image(x, y, 'disc').setDepth(9400).setTint(0x9ad0ff).setScale((r * 2) / 64);
     sc.tweens.add({ targets: flash, alpha: 0, scale: (r * 2.6) / 64, duration: 300, onComplete: () => flash.destroy() });
-    audio.play('zap');
+    this.scene.sfx('zap');
     sc.queryCircle(x, y, r, (e) => sc.damageEnemy(e, this.dmg, this, 0, 0, 0.3));
   }
 }
@@ -620,8 +643,8 @@ const CLASSES = {
   thunder: Ring,
 };
 
-export function createWeapon(scene, id) {
-  return new CLASSES[id](scene, id);
+export function createWeapon(scene, id, owner) {
+  return new CLASSES[id](scene, id, owner);
 }
 
 export const BASE_WEAPON_IDS = Object.keys(WEAPONS).filter((k) => !WEAPONS[k].evolved);
