@@ -24,7 +24,7 @@ export class CoopScene extends Phaser.Scene {
     super('Coop');
   }
 
-  create() {
+  create(data) {
     backdrop(this);
     hookAudioUnlock(this);
     this.busy = false;
@@ -86,6 +86,7 @@ export class CoopScene extends Phaser.Scene {
     });
 
     if (location.protocol === 'file:') this.status.setText('Co-op needs the game server: run "npm run dev" and open the URL it prints.').setColor(COLORS.red);
+    else if (data?.autoJoin) this.join(data.autoJoin);
   }
 
   startEntry() {
@@ -154,11 +155,12 @@ export class LobbyScene extends Phaser.Scene {
 
     txt(this, W / 2, 46, 'LOBBY', 32, COLORS.gold, { ox: 0.5 });
     txt(this, W / 2, 100, `ROOM CODE  ${net.code}`, 24, COLORS.text, { ox: 0.5 });
+    this.inviteLink = `${location.origin}${location.pathname}?join=${net.code}`;
     const local = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
     const hint = local
       ? 'Same computer: open another tab at this address. Other devices: run "npm run lan" and use its Network URL.'
-      : `Friends open ${location.origin} and join with the code above.`;
-    txt(this, W / 2, 140, hint, 9, COLORS.dim, { ox: 0.5, align: 'center', wrap: 1100 });
+      : `Invite link: ${this.inviteLink}`;
+    this.hintText = txt(this, W / 2, 140, hint, 9, COLORS.dim, { ox: 0.5, align: 'center', wrap: 1100 });
 
     // Player slots
     this.slotViews = [];
@@ -185,15 +187,18 @@ export class LobbyScene extends Phaser.Scene {
       return it;
     });
 
-    const leave = button(this, W / 2 - 170, H - 56, 'LEAVE', 300, 54);
+    const leave = button(this, W / 2 - 340, H - 56, 'LEAVE', 300, 54);
     leave.onSelect = () => this.leave();
     items.push(leave);
+    const invite = button(this, W / 2, H - 56, 'COPY INVITE LINK', 300, 54, 12);
+    invite.onSelect = () => this.copyInvite(invite);
+    items.push(invite);
     if (net.isHost) {
-      this.startBtn = button(this, W / 2 + 170, H - 56, 'START', 300, 54, 18);
+      this.startBtn = button(this, W / 2 + 340, H - 56, 'START', 300, 54, 18);
       this.startBtn.onSelect = () => this.start();
       items.push(this.startBtn);
     } else {
-      txt(this, W / 2 + 170, H - 56, 'Waiting for host...', 12, COLORS.dim, { ox: 0.5, oy: 0.5 });
+      txt(this, W / 2 + 340, H - 56, 'Waiting for host...', 12, COLORS.dim, { ox: 0.5, oy: 0.5 });
     }
     this.nav = new Nav(this, items, { columns: ids.length, initial: Math.max(0, ids.indexOf(this.myChar)), onCancel: () => this.leave() });
 
@@ -206,6 +211,17 @@ export class LobbyScene extends Phaser.Scene {
       net.send({ t: 'hello', charId: this.myChar, powerups: loadSave().powerups || {} });
     }
     this.render();
+  }
+
+  copyInvite(btn) {
+    const done = (ok) => {
+      btn.label.setText(ok ? 'LINK COPIED!' : 'COPY FAILED');
+      if (!ok) this.hintText.setText(`Invite link: ${this.inviteLink}`).setColor(COLORS.text);
+      this.time.delayedCall(2000, () => btn.label.setText('COPY INVITE LINK'));
+    };
+    // Clipboard access needs a secure context (https or localhost).
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(this.inviteLink).then(() => done(true), () => done(false));
+    else done(false);
   }
 
   pick(id) {

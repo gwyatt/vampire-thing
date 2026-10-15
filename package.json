@@ -8,15 +8,19 @@
     "dev": "vite",
     "lan": "vite --host",
     "build": "vite build",
+    "start": "node server/index.js",
     "preview": "vite preview",
     "preview:lan": "vite preview --host"
   },
   "dependencies": {
-    "@fontsource/press-start-2p": "^5.3.0",
-    "phaser": "^4.2.1",
     "ws": "^8.22.0"
   },
   "devDependencies": {
+    "@fontsource/press-start-2p": "^5.3.0",
+    "phaser": "^4.2.1",
     "vite": "^8.3.4"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

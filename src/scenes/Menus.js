@@ -15,7 +15,16 @@ export class BootScene extends Phaser.Scene {
     generateArt(this);
     const save = loadSave();
     audio.setMuted(!!save.muted);
-    this.scene.start('Menu');
+    // Invite links look like https://host/?join=ABCD: go straight to joining.
+    const params = new URLSearchParams(location.search);
+    const join = (params.get('join') || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
+    if (params.has('join')) {
+      params.delete('join');
+      const q = params.toString();
+      history.replaceState(null, '', location.pathname + (q ? `?${q}` : '') + location.hash);
+    }
+    if (join.length === 4) this.scene.start('Coop', { autoJoin: join });
+    else this.scene.start('Menu');
   }
 }
 

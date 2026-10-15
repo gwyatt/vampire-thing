@@ -10,6 +10,48 @@ There are no image or audio files. All pixel art is generated from tiny
 pixel maps when the game starts, and all sound effects and music are
 synthesized with the Web Audio API.
 
+## Put it on the web
+
+The game and its co-op server run as one small Node app, so a single
+deploy gives you one public URL for solo and co-op play.
+
+### One click: Render (free tier)
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/gwyatt/vampire-thing)
+
+1. Click the button and sign in to Render (a GitHub login works).
+2. Approve the `vampire-thing` service it proposes. The settings come from
+   [`render.yaml`](render.yaml): free plan, `npm run build`, `npm start`.
+3. When the build finishes, Render shows the URL, e.g.
+   `https://vampire-thing.onrender.com`. Share it.
+
+On Render's free plan the service sleeps after 15 minutes without
+traffic. The next visitor wakes it up, which takes about a minute. Active
+co-op games keep it awake. New pushes to the repo redeploy automatically.
+
+### Anywhere else
+
+Any host that runs Node 18+ (or Docker) and supports WebSockets works:
+Fly.io, Railway, a VPS, and so on.
+
+```bash
+npm ci && npm run build
+PORT=8080 npm start          # serves dist/ + the relay on one port
+```
+
+There's also a [`Dockerfile`](Dockerfile):
+
+```bash
+docker build -t vampire-thing .
+docker run -p 8080:8080 vampire-thing
+```
+
+`/healthz` returns `{"ok":true,"rooms":N,"players":N}` for uptime checks.
+Use HTTPS in front of it (most hosts do this for you). The game then
+connects over secure WebSockets automatically, and the lobby's **Copy
+invite link** button works (browsers only allow clipboard access on
+secure pages).
+
 ## Running locally
 
 You need [Node.js](https://nodejs.org) 18 or newer.
@@ -21,34 +63,35 @@ npm run dev
 
 Vite opens the game in your browser at <http://localhost:5173>.
 
-To make a static production build:
+To try the production build locally:
 
 ```bash
 npm run build     # outputs to dist/
-npm run preview   # serves dist/ at http://localhost:4173
+npm start         # serves it at http://localhost:8080
 ```
 
-`dist/` uses relative paths, so solo play works from any static server.
-Co-op also needs the small relay server, which `npm run dev` and
-`npm run preview` provide (see below). Opening `index.html` straight from
-disk (`file://`) won't work because browsers block ES modules there.
+`dist/` uses relative paths, so solo play also works from any static file
+host. Co-op needs the relay, which `npm start`, `npm run dev` and
+`npm run preview` all include. Opening `index.html` straight from disk
+(`file://`) won't work because browsers block ES modules there.
 
 ## Online co-op
 
 Choose **Online co-op** on the title screen.
 
 1. One player picks **Host game**. They get a 4-letter room code.
-2. Everyone else picks **Join game** and types the code.
+2. They press **Copy invite link** and send it to friends. Opening the
+   link (`https://your-site/?join=ABCD`) drops you straight into that
+   lobby. Friends can also pick **Join game** and type the code.
 3. Each player picks a hunter in the lobby, then the host presses **Start**.
 
-The game server is built into the Vite server, so there's nothing extra to
-run. How others reach it depends on where they are:
+How others reach the game depends on where it's running:
 
-| Who's playing                    | Run                | Others open                               |
+| Where it runs                    | Run                | Others open                               |
 | -------------------------------- | ------------------ | ----------------------------------------- |
+| Deployed to the web (see above)  | nothing            | The site's URL, or an invite link         |
 | Testing on one computer          | `npm run dev`      | A second tab at `http://localhost:5173`   |
 | Same Wi-Fi / home network        | `npm run lan`      | The "Network" URL Vite prints (e.g. `http://192.168.1.20:5173`) |
-| Over the internet                | `npm run lan`      | Your public address (needs port 5173 forwarded on your router, or a tunnel such as `ngrok http 5173`) |
 
 `npm run lan` exposes the dev server to your network, so only use it on
 networks you trust. You may need to allow Node through your firewall.
@@ -134,7 +177,10 @@ src/
     Menus.js       Boot, title, character select, power-up shop
     Lobby.js       Co-op host/join screen and lobby
 server/
-  relay.js         WebSocket relay (rooms + message forwarding), as a Vite plugin
+  index.js         Production server: static dist/ + relay on one port
+  relay.js         WebSocket relay (rooms + message forwarding), also a Vite plugin
+render.yaml        Render blueprint (free web service)
+Dockerfile         Container image for any other host
 ```
 
 ### Tuning
@@ -160,6 +206,11 @@ server/
 
 - **Relay** (`server/relay.js`): runs no game logic. It groups sockets
   into rooms by code and forwards messages between the host and clients.
+  For the public internet it limits rooms (`MAX_ROOMS`, default 500) and
+  sockets per IP (`MAX_SOCKETS_PER_IP`, default 16), rate-limits client
+  messages, and drops dead connections with a heartbeat.
+  `server/index.js` serves the built game with gzip, long-lived caching
+  for fingerprinted assets, and a strict Content-Security-Policy.
 - **Host-authoritative:** the host runs the normal `Game` scene with
   several players. Clients send their own position about 30 times a
   second, and the client's own movement is predicted locally, so it feels
